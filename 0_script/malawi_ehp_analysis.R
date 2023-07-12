@@ -3,9 +3,6 @@
 ## Created by: Sakshi Mohan; 17/01/2022
 #############################################################
 
-# % Notes surrounded by "%" represent temporary code which should be substituted if a better way can be found to deal with the issue %
-# Verification/browse code is indented and commented out surrounded by "^^"
-
 ##############################
 # 0 - Load librairies
 ##############################
@@ -13,14 +10,13 @@
 #install.packages("xtable")
 #install.packages("viridis")
 #install.packages("writexl")
-#install.packages("xlsx")
 #install.packages("extrafont")
 #install.packages("fmsb")
 #install.packages("tidyverse")
 #install.packages("lpSolve")
 #install.packages("readxl")
 
-library(readxl)
+library(readxl) # extract data into excel files
 library(lpSolve)
 library(tidyverse)
 library(fmsb) # for radar chart
@@ -32,7 +28,6 @@ library(xtable) # for LaTeX tables
 library(tidyr)
 library(scales) # to formal axis labels
 library(viridis) # load viridis colour palette
-library(readxl) # extract data into excel files
 library(writexl) # new package to write excel files without java dependency
 
 library(extrafont) # load fonts for graph
@@ -42,7 +37,7 @@ loadfonts(device = "win")
 ##############################
 # 1 - Set Working Directory
 ##############################
-setwd("C:/Users/sm2511/Dropbox/York/Research Projects/Malawi EHP/Analysis/")
+setwd("C:/Users/sm2511/Dropbox/York/Research Projects/Malawi EHP/Analysis/repo/")
 
 ###################################
 # 2 - Load and set up data for LPP
@@ -50,7 +45,7 @@ setwd("C:/Users/sm2511/Dropbox/York/Research Projects/Malawi EHP/Analysis/")
 
 # Load epi/cost/CE dataset 
 #****************************************************
-df <- read_excel("2 data/EHP Tool_07Mar22.xlsx", sheet = "final_intervention_list",col_names = TRUE,col_types=NULL,na="",skip=3)
+df <- read_excel("1_data/malawi_intervention_data.xlsx", sheet = "final_intervention_list",col_names = TRUE,col_types=NULL,na="",skip=1)
 
 df <- df[-c(1),]  # remove first column
 df <- df[c("code","category","intervention","ce_dalys", "ce_cost", 
@@ -61,20 +56,19 @@ df <- df[c("code","category","intervention","ce_dalys", "ce_cost",
            "hr_pharm", "hr_pharmtech", "hr_pharmass",
            "hr_laboff", "hr_labtech", "hr_labass",
            "donor_funded")]
-df <- na.omit(df) # drop rows containing missing values #df[!is.na(df$`DALYs averted per patient (Uganda)`)]
+df <- na.omit(df) 
 
 
 # Load HR availability dataset
 #****************************************************
-df_hr <- read_excel("2 data/EHP Tool_07Mar22.xlsx", sheet = "hr_constraint",col_names = TRUE,col_types=NULL,na="",skip=1)
+df_hr <- read_excel("1_data/malawi_hr_data.xlsx", sheet = "hr_constraint",col_names = TRUE,col_types=NULL,na="",skip=1)
+
 cadres <- 4 # set number of cadres being considered
 
 hr.time.constraint <- df_hr$'Total patient-facing time per year (minutes)'[1:cadres]
 hr.size <- df_hr$'Total staff'[1:cadres]
-hr.size <- as.numeric(hr.size)
-hr.time.constraint <- as.numeric(hr.time.constraint) 
-
-# Placeholder to tackle complements (see uganda_sample_code)
+hr.size <- as.numeric(gsub(",", "", hr.size))
+hr.time.constraint <- as.numeric(gsub(",", "", hr.time.constraint))
 
 ###################################
 # 3. Define optimization function
@@ -389,9 +383,6 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   a <- which(icer == max(temp['icer'][temp['solution.class$solution'] > 0])) # to check which included intervention has the highest ICER
   least.ce.intervention <- data.frame$intervention[a]
   
-  # Collapse above outputs so that each intervention appears once in the list irrespective of task-shifting
-  #pos_nethealth.count, intervention.count, dalys_averted, cet_soln, drug_exp.prop, t(hruse.prop[,visible_cadres])
-  
   outputs <- list("Total number of interventions in consideration" = length(dalys), 
                   "Number of interventions with positive net health impact" = pos_nethealth.count, 
                   "Number of interventions in the optimal package" = intervention.count,
@@ -436,12 +427,6 @@ gen_resourceuse_graphs <- function(plot_title, plot_subtitle, file_name){
   colnames(data) <- c('category', hr_cadres, 'Drug \nbudget')
   data_long <<- gather(data, resource, use, 2:'Drug \nbudget', factor_key=TRUE)
   data_long$use <<- as.numeric(data_long$use) # convert use data to numeric
-  
-  # Arrange/sort and compute cumulative sums to position labels on each stacked portion
-  #data_long <- data_long %>%
-  #  group_by(resource) %>%
-  #  arrange(resource, desc(category)) %>%
-  #  mutate(lab_ypos = cumsum(use) - 0.5 * use) 
   
   ## Generate graph
   #***********************************************************************************
