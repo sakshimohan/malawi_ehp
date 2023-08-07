@@ -6,16 +6,8 @@
 ##############################
 # 0 - Load librairies
 ##############################
-#install.packages("forcats")
-#install.packages("xtable")
-#install.packages("viridis")
-#install.packages("writexl")
-#install.packages("extrafont")
-#install.packages("fmsb")
-#install.packages("tidyverse")
-#install.packages("lpSolve")
-#install.packages("readxl")
-
+# First install all the necessary packages
+# Then load all packages
 library(readxl) # extract data into excel files
 library(lpSolve)
 library(tidyverse)
@@ -29,6 +21,7 @@ library(tidyr)
 library(scales) # to formal axis labels
 library(viridis) # load viridis colour palette
 library(writexl) # new package to write excel files without java dependency
+library(testit) # for assertion commands
 
 library(extrafont) # load fonts for graph
 font_import()
@@ -110,11 +103,9 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   # Define objective
   if (objective_input == 'nethealth'){
     objective <<- nethealth * cases
-  }
-  else if (objective_input == 'dalys'){
+  } else if (objective_input == 'dalys'){
     objective <<- dalys * cases
-  }
-  else{
+  } else{
     print('ERROR: objective_input can take values dalys or nethealth')	
   }
   
@@ -122,9 +113,9 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   #****************************************************
   # 1. Drug Budget
   #----------------
-  cons_drug <<- drugcost * cases # Cost of drugs for the number of cases covered
+  cons_drug <<- drugcost * cases # Drug budget *cons*traint Cost of drugs for the number of cases covered
   cons_drug.limit <<- drug_budget_input * drug_budget.scale
-  cons_drug.limit_base <<- drug_budget_input # unscaled drug budget
+  cons_drug.limit_base <<- drug_budget_input # unscaled drug budget saved for post optimisation analyses
   
   # 2. HR Constraints
   #---------------------
@@ -152,14 +143,12 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   
   if (task_shifting_pharm == 0){
     print("")
-  }
-  else if (task_shifting_pharm == 1){
+  } else if (task_shifting_pharm == 1){
     medstaff.need <- duplicate_matrix_horizontally(reps,as.matrix(medstaff.need))
     nursingstaff.need <- rbind(as.matrix(nursingstaff.need), as.matrix(nursingstaff.need + pharmstaff.need))
     pharmstaff.need <- rbind(as.matrix(pharmstaff.need), as.matrix(rep(0,n)))
     labstaff.need <- duplicate_matrix_horizontally(reps,as.matrix(labstaff.need))
-  }
-  else{
+  } else{
     print('ERROR: tash_shifting_pharm can take values 0 or 1')
   }
   
@@ -203,19 +192,18 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   #--------------------------------------
   cons.feascov <<- diag(x = cases, n, n)
   if (use_feasiblecov_constraint == 1){
-    cons.feascov.limit <<- as.matrix(maxcoverage * feascov_scale * cases)
-  }
-  else if (use_feasiblecov_constraint == 0){
-    cons.feascov.limit <<- as.matrix(cases) # changed the constraint on 12May (multiplied by cases)
-  }
-  else{
+    cons.feascov.limit <<- as.matrix(maxcoverage * feascov_scale * cases) # Maximum feasible coverage X scale factor applied to feasible coverage X Total number of cases in need
+  } else if (use_feasiblecov_constraint == 0){
+    cons.feascov.limit <<- as.matrix(cases) # Total number of cases in need
+  } else{
     print('ERROR: use_feasiblecov_constraint can take values 0 or 1')
   }  
   
-  nonneg.lim <<- as.matrix(rep(0,n))
+  nonneg.lim <<- as.matrix(rep(0,n)) # Optimal coverage output cannot be negative
   
   # 4. Compulsory interventions
   #--------------------------------------
+  # These are interventions which are forced into the package for reasons outside constrained optimisation to maximise health benefit
   if (length(compulsory_interventions) > 0){
     comp.count <- length(compulsory_interventions)
     cons_compulsory <<- matrix(0L, length(compulsory_interventions), ncol = n)
@@ -223,21 +211,18 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
     for (i in 1:length(compulsory_interventions)){
       a <- which(data.frame$code == compulsory_interventions[i])
       b <- data.frame$intervention[a]
-      #print(paste("Compulsory intervention: ",b, "; Code: ", compulsory_interventions[i], "; Number ",a ))
+      #print(paste("Compulsory intervention: ",b, "; Code: ", compulsory_interventions[i], "; Number ",a ))  # print suppressed
       cons_compulsory[i,a] <<- cases[a]
-      # CHECK THIS CHANGE MADE on 26Aug21
-      cons_compulsory.limit[i] <<- cases[a] * maxcoverage[a] * feascov_scale * compcov_scale # changed on 12May to maxcoverage because cons.feascov.limit is now maximum number of cases rather than maximum % coverage 
+      cons_compulsory.limit[i] <<- cases[a] * maxcoverage[a] * feascov_scale * compcov_scale # the RHS is the maximum feasible number of cases X scale factor applied to feasible coverage X further scale factor applied to compulsory interventions
     }
     dim(cons_compulsory)
-  }
-  else if(length(compulsory_interventions) == 0){
+  } else if(length(compulsory_interventions) == 0){
     comp.count<- 1
     cons_compulsory <<- matrix(0L, 1, ncol = n)
     cons_compulsory.limit <<- matrix(0L, 1, ncol = 1)
   }  
   cons_compulsory <<- t(cons_compulsory) 
   
-  #placeholder#
   ###### % Complementary interventions code left out for now %
 
   # 5. Substitute interventions
@@ -256,14 +241,13 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
         a <- which(data.frame$code == k)
         if (use_feasiblecov_constraint == 1){
           cases_max <- cases[a] * maxcoverage[a] * feascov_scale
-        }
-        else if (use_feasiblecov_constraint == 0){
+        } else if (use_feasiblecov_constraint == 0){
           cases_max <- cases[a]
         }
         subsgrp_cases = cbind(subsgrp_cases,cases_max) 
       }
       subsgrp_casesmax[i] = max(subsgrp_cases)
-      #print(paste("Group", i, "Cases max", subsgrp_casesmax[i]))
+      #print(paste("Group", i, "Cases max", subsgrp_casesmax[i]))  # print suppressed
     }
   }
   
@@ -276,13 +260,12 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
       for (k in j){
         a <- which(data.frame$code == k)
         b <- data.frame$intervention[a]
-             #print(paste("Intervention: ",b, "; Code: ", k, "; Maximum cases for intervention:", cons.feascov.limit[a],"; Number: ",a))
-        cons_substitutes[i,a] <<- cases[a] # changed on 12May from 1 to cases
-        cons_substitutes.limit[i] <<- subsgrp_casesmax[i] # changed on 12May to maxcoverage because cons.feascov.limit is now maximum number of cases rather than maximum % coverage 
+             #print(paste("Intervention: ",b, "; Code: ", k, "; Maximum cases for intervention:", cons.feascov.limit[a],"; Number: ",a))  # print suppressed
+        cons_substitutes[i,a] <<- cases[a] 
+        cons_substitutes.limit[i] <<- subsgrp_casesmax[i]  # Maximum feasible number of cases among substituable interventions
       }
     }
-    #cons_substitutes.limit[i] <- cons_substitutes.limit[i]/lengths(substitutes)[i]  # removed on 12May
-     #print(paste("Maximum combined cases for group ",i, "= ", subsgrp_casesmax[i])) # print suppressed
+     # print(paste("Maximum combined cases for group ",i, "= ", subsgrp_casesmax[i])) # print suppressed
   }  
   cons_substitutes <<- t(cons_substitutes)
   
@@ -291,8 +274,7 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   # Update the constraint matrices if task shifting is allowed
   if (task_shifting_pharm == 0){
     print("No task shifting of pharmaceutical tasks")
-  }
-  else if (task_shifting_pharm == 1){
+  } else if (task_shifting_pharm == 1){
     #1. Objective
     objective <<- duplicate_matrix_horizontally(reps, as.matrix(objective))
     #2. Drug budget constraint (cons_drug.limit does not need to be changed)
@@ -303,22 +285,20 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
     cons_compulsory <<- duplicate_matrix_horizontally(reps,as.matrix(cons_compulsory))
     #6. Substitutes
     cons_substitutes <<- duplicate_matrix_horizontally(reps,as.matrix(cons_substitutes))  
-  }
-  else{
+  } else{
     print('ERROR: task_shifting_pharm can take values 0 or 1')
   }
   
   # Combine constraints 1-5
-  cons.mat <- rbind(t(cons_drug), t(cons_hr), t(cons.feascov), t(cons.feascov), t(cons_compulsory), t(cons_substitutes)) # % cons_complements %
-  cons.mat.limit <- rbind(cons_drug.limit, t(cons_hr.limit), cons.feascov.limit, nonneg.lim, cons_compulsory.limit, cons_substitutes.limit) # cons_complements.limit,
+  cons.mat <- rbind(t(cons_drug), t(cons_hr), t(cons.feascov), t(cons.feascov), t(cons_compulsory), t(cons_substitutes)) # % cons_complements taken out for now
+  cons.mat.limit <- rbind(cons_drug.limit, t(cons_hr.limit), cons.feascov.limit, nonneg.lim, cons_compulsory.limit, cons_substitutes.limit) # % cons_complements.limit taken out for now
   
   # Direction of relationship
   cons.dir <- rep("<=",1+cadres+n)
   cons.dir <- c(cons.dir,rep(">=",n), rep(">=",comp.count))
   cons.dir <- c(cons.dir,rep("<=",length(substitutes)))
-  # % cons.dir <- c(cons.dir,rep("<=",length(complements))) %
-  length(cons.dir)
-  length(cons.dir) = dim(cons.mat.limit)[1] # Assert that the length of the directions list is the same as that of the constraints matrix
+  # % cons.dir <- c(cons.dir,rep("<=",length(complements))) % # taken out for now
+  assert(length(cons.dir) == dim(cons.mat.limit)[1]) # Assert that the length of the directions list is the same as that of the constraints matrix
   
   ###################################
   # 3.2 - Run LPP
@@ -328,8 +308,8 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   ###################################
   # 3.3 - Outputs	
   ###################################
-  # Export solution to a .csv file
-  #------------------------------------
+  # Prepare solution for export into a .csv file
+  #---------------------------------------------
   solution <<- as.data.frame(solution.class$solution)
   solution_hr <<- as.data.frame(solution.class$solution) # use this uncollapsed version of the dataframe for HR use calculations below
   # Collapse solution by intervention
@@ -343,7 +323,7 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   }
   
   # Number of interventions with a positive net health impact
-  pos_nethealth.count <<- sum(nethealth > 0) # this seems to be one less than the figure in the excel
+  pos_nethealth.count <<- sum(nethealth > 0) 
   
   # Number of interventions in the optimal package
   intervention.count <<- sum(solution != 0)
@@ -357,7 +337,7 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   # Drugs and Commodities cost (% of budget available)
   solution_drugexp <<- solution*cons_drug[1:length(dalys),] # Total drug budget required per intervention for the  the optimal solution
   total_drug_exp <<- round(sum(unlist(lapply(solution_drugexp, sum))),2) # Total drug budget required for the  the optimal solution
-  drug_exp.prop <<- total_drug_exp/cons_drug.limit_base
+  drug_exp.prop <<- total_drug_exp/cons_drug.limit_base # Proportion of drug budget used by the optimal solution
   
   # Total HR use (% of capacity)
   hr_cadres <- c("Clinical", "Nursing", "Pharmaceutical", "Lab")
@@ -371,7 +351,7 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
     solution_hruse <<- solution_hruse[1:length(dalys),]
   }
   total_hruse <<- colSums(solution_hruse, na.rm = FALSE, dims = 1) # Number of minutes per health worker cadre utlitised by the optimal solution
-  hruse.prop <<- round(total_hruse/cons_hr.limit_base, 2)
+  hruse.prop <<- round(total_hruse/cons_hr.limit_base, 2)  # Proportion of HR time available used by the optimal solution
   colnames(hruse.prop) <<- hr_cadres
   
   # Cost-effectiveness Threshold
@@ -414,7 +394,7 @@ gen_resourceuse_graphs <- function(plot_title, plot_subtitle, file_name){
   # Drug budget Use
   data_drug <- as.matrix(solution_drugexp)/cons_drug.limit_base
   
-  length(data_drug) = dim(data_hr)[1] # Assert that the length of the directions list is the same as that of the constraints matrix
+  assert(length(data_drug) == dim(data_hr)[1]) # Assert that the length of the directions list is the same as that of the constraints matrix
   
   # Combine all resource use matrices into one matrix
   data <- cbind(data_hr,data_drug)
@@ -466,7 +446,7 @@ data.frame <- df
 cet.ochalek <- 65.8 # CET = 2016$ 61 (2020$ 65.758) (Ochalek et al, 2016)
 cet.lomas <- 164.7 # This value is in 2020 USD (2017 USD 154)
 base.cet <- cet.ochalek
-base.drugbudget <- 203136642 + 22466304 # Donor budget + government budget
+base.drugbudget <- 203136642 + 22466304 # Donor budget + government budget (NLGFC Drug budget = MWK 12,000,000,000 =  14696876.40 USD)
 cadres <- 4
 base.hr <- rep(1,cadres)
 no.hr.limit <- rep(9999999999,cadres) # when we assume no limit on Human resources
@@ -488,7 +468,6 @@ subs_list <- list(subs1 = c("065", "066"), # Second-line ART without intensive m
                     subs12 = c("298", "299"), # (Full) Xpert for all patients with presumptive tuberculosis; Targeted Xpert for patients with presumptive tuberculosis (Smear negative, HIV positive, retreatment, contacts of MDR-TB cases)
                     subs13 = c("310", "311") # First line treatment of smear positive cases (95% coverage); Full DOTS (smear-positive, smear negative and Extrapulmonary cases)
 )
-# NLGFC Drug budget = MWK 12,000,000,000 =  14696876.40 USD
 
 ##########################################################
 # 3 Run scenarios and generate resource use graphs
