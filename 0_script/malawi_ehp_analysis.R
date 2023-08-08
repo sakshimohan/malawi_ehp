@@ -716,7 +716,7 @@ shadowprice_table = round(shadowprice_table*1000,2)
 hs_components = c('Drug budget', 'Doctor/Medical officer time', 'Nurse time', 'Pharmacist time')
 
 # Extract marginal value figure
-pdf("3 outputs/figures/marginalvalue_hss.pdf")
+pdf("2_outputs/figures/marginalvalue_hss.pdf")
 par(mar=c(4,11,4,4))
 y <- barplot(height = rev(t(shadowprice_table)), names = rev(hs_components), width = 1 ,
              space=NULL, las = 1, horiz=T,
@@ -726,65 +726,3 @@ y <- barplot(height = rev(t(shadowprice_table)), names = rev(hs_components), wid
 x <-as.matrix(rev(t(shadowprice_table)))
 text(x+100,y,labels=as.character(round(x,3)))
 dev.off()
-
-######################### Sample code ###############################
-# Extract output in the form of a .csv
-visible_cadres = c(1:3,6,7)
-base_objval <- solution.class$objval
-solution_cases <- solution * cases
-full_solution <- cbind.data.frame(category, intervention, solution, solution_cases, solution_dalysaverted, solution_drugexp, solution_hruse[,visible_cadres])
-
-colnames_soln = c("Program", "Intervention", "% of cases covered under optimal package", "Total number of cases covered under the optimal package",
-                  "DALYs averted", "Drug expenditure required",
-                  "Medical/Clinical Officer", "Nursing staff",
-                  "Pharmaceutical staff",
-                  "Mental health staff", "Nutrition staff")
-colnames(full_solution) = colnames_soln
-
-write.csv(full_solution, file = "3 outputs/tables/base_solution.csv")
-
-#6.	CET* + Drug budget constraint + Aspirational HR constraint+ Demand constraint
-find_optimal_package(data.frame = data.frame, objective_input = "nethealth", cet_input = base.cet, 
-                     drug_budget_input = base.drugbudget, drug_budget.scale = 1,  
-                     hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = base.hr*1.5, 
-                     use_feasiblecov_constraint = 1, feascov_scale = 1, compcov_scale = 1, 
-                     compulsory_interventions = NULL, substitutes = NULL, task_shifting_pharm = 1)
-gen_resourceuse_graphs(plot_title = "Scenario 6" , plot_subtitle = "CET = $164.7 + Drug Budget + HR constraint X 1.5 + \nDemand constraint", file_name = "3 outputs/figures/resourceuse_scen6.pdf")
-
-# Additional scenario - scenario 5 without task-shifting
-
-find_optimal_package(data.frame = data.frame, objective_input = "nethealth", cet_input = base.cet, 
-                     drug_budget_input = base.drugbudget, drug_budget.scale = 1,  
-                     hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = base.hr, 
-                     use_feasiblecov_constraint = 1, feascov_scale = 1, compcov_scale = 1, 
-                     compulsory_interventions = NULL, substitutes = NULL, task_shifting_pharm = 0)
-gen_resourceuse_graphs(plot_title = "Scenario 5 - no task-shifting" , plot_subtitle = "CET = $164.7 + Drug Budget + HR constraint \n+ Demand constraint", file_name = "3 outputs/figures/resourceuse_scen5_nots.pdf")
-
-# Additional scenario - scenario 5 without HR constraint
-
-find_optimal_package(data.frame = data.frame, objective_input = "nethealth", cet_input = base.cet, 
-                     drug_budget_input = base.drugbudget, drug_budget.scale = 1,  
-                     hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = no.hr.constraint, 
-                     use_feasiblecov_constraint = 1, feascov_scale = 1, compcov_scale = 1, 
-                     compulsory_interventions = NULL, substitutes = NULL, task_shifting_pharm = 1)
-gen_resourceuse_graphs(plot_title = "Scenario 5" , plot_subtitle = "CET = $164.7 + Drug Budget + HR constraint \n+ Demand constraint", file_name = "3 outputs/figures/resourceuse_scen5_nohrcons.pdf")
-
-# Extract output in the form of a .csv
-visible_cadres = c(1:3,6,7)
-base_objval <- solution.class$objval
-solution_cases <- solution * cases
-full_solution <- cbind.data.frame(category, intervention, solution, solution_cases, solution_dalysaverted, solution_drugexp, solution_hruse[,visible_cadres])
-
-colnames_soln = c("Program", "Intervention", "% of cases covered under optimal package", "Total number of cases covered under the optimal package",
-                  "DALYs averted", "Drug expenditure required",
-                  "Medical/Clinical Officer", "Nursing staff",
-                  "Pharmaceutical staff",
-                  "Mental health staff", "Nutrition staff")
-colnames(full_solution) = colnames_soln
-
-write.csv(full_solution, file = "3 outputs/tables/base_solution_lesshr.csv")
-#6.	Scenarios 3 (after netting out Tertiary level resources)
-#7.	Scenarios 4 (after netting out Tertiary level resources)
-#8.	Scenario 4 (after removing HR requirements for CHW interventions)
-
-
