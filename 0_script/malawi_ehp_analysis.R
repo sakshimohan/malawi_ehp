@@ -387,7 +387,7 @@ gen_resourceuse_graphs <- function(plot_title, plot_subtitle, file_name){
   ## Generate matrix representing HR and Drug budget use by the HBP solution run above
   #***********************************************************************************
   # HR Resource Use
-  data_hr <- sweep(solution_hruse[,1:3], 2, cons_hr.limit_base, FUN = '/')
+  data_hr <- sweep(solution_hruse, 2, cons_hr.limit_base, FUN = '/')
   data_hr <- data_hr[,1:3]
   hr_cadres <- c("Clinical \nstaff", "Nursing \nstaff", "Pharmaceutical \nstaff") # , "Laboratory \nstaff"
   
@@ -592,6 +592,12 @@ hrneed <- merged_df[c("hr_medoff", "hr_clinoff", "hr_medass",
 hrneed <- as.data.frame(apply(hrneed,2,as.numeric))
 hr_minutes_need <- hrneed * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size)  # HR minutes required to deliver intervention to all cases in need
 
+hr_size.limit <- hr.size
+medstaff.limit <- hr_size.limit[1]
+nursingstaff.limit <- hr_size.limit[2]
+pharmstaff.limit <- hr_size.limit[3] 
+labstaff.limit <- hr_size.limit[4]
+
 medstaff.need <- hr_minutes_need[c("hr_medoff")] + hr_minutes_need[c("hr_clinoff")] + hr_minutes_need[c("hr_medass")] # Medical officer + Clinical officer + Medical Assistant
 nursingstaff.need <- hr_minutes_need[c("hr_nuroff")] + hr_minutes_need[c("hr_nurtech")] # Nurse officer + Nurse midwife
 pharmstaff.need <- hr_minutes_need[c("hr_pharm")] + hr_minutes_need[c("hr_pharmtech")] + hr_minutes_need[c("hr_pharmass")] # Pharmacist + Pharmacist Technician + Pharmacist Assistant
@@ -609,6 +615,7 @@ scen7 <- cbind.data.frame(pos_nethealth.count, intervention.count, dalys_averted
 # Generate resource use graph for scenario 7
 cons_drug.limit_base <- base.drugbudget # re-adjust since this will be equal to only government budget
 cons_hr.limit_base <- cons_hr.limit_base[,1:3]
+solution_hruse <- solution_hruse[,1:3]
 gen_resourceuse_graphs(plot_title = "Scenario 7" , plot_subtitle = "CET = $66 + Demand constraint + Drug Budget \n+ Donor constraints ", file_name = "2_outputs/figures/resourceuse_scen7.pdf")
 
 #############################################################
