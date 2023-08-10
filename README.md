@@ -21,8 +21,8 @@ The model is replicated from the analysis performed for a previous study - Mohan
 
 ## Scenarios of interest
 In Table S1 of the paper, results from two scenarios are included. 
-1. Without donor constraints - Scenario 5 in _0_script/malawi_ehp_analysis.R_ (lines 548-552)
-2. With Donor constraints - Scenario 7 in _0_script/malawi_ehp_analysis.R_ (lines 559-565)
+1. Without donor constraints - Scenario 5 in _0_script/malawi_ehp_analysis.R_
+2. With Donor constraints - Scenario 7 in _0_script/malawi_ehp_analysis.R_ 
 
 
 ## Acknowledgements 
