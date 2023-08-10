@@ -376,6 +376,128 @@ find_optimal_package <- function(data.frame, objective_input, cet_input,
   return(outputs)
 }
 
+###########################################################################################################
+# Function which runs the find_optimal_package function in conjunction with the donor constraint
+###########################################################################################################
+find_optimal_package_with_donor_constraint <- function(data.frame, objective_input, cet_input, 
+                                                       drug_budget_input, drug_budget.scale,  
+                                                       hr.time.constraint, hr.size, hr.scale, 
+                                                       use_feasiblecov_constraint, feascov_scale, compcov_scale, 
+                                                       compulsory_interventions, substitutes, task_shifting_pharm,
+                                                       drug_budget.nonfungible){
+  
+  # 1. Optimising fungible budget allocation
+  #------------------------------------------
+  # For constrained optimisation, we only consider interventions which are not funded from the non-fungible part of the 
+  # budget
+  df_fungible <- data.frame[data.frame$donor_funded == "No", ]
+  drug_budget.fungible <- drug_budget_input - drug_budget.nonfungible
+  
+  find_optimal_package(data.frame = df_fungible, objective_input, cet_input, 
+                       drug_budget_input = drug_budget.fungible, drug_budget.scale,  
+                       hr.time.constraint, hr.size, hr.scale, 
+                       use_feasiblecov_constraint, feascov_scale, compcov_scale, 
+                       compulsory_interventions, substitutes, task_shifting_pharm)
+  
+  # Store outputs for the fungible part of the package
+  #scen_fungible = cbind.data.frame(pos_nethealth.count, intervention.count, dalys_averted, cet_soln, drug_exp.prop, hruse.prop)
+  scen_coverage_fungible <<- solution
+  scen_coverage_fungible <<- cbind(category, code,  intervention, solution)
+  colnames(scen_coverage_fungible) <<- c("Program", "code", "Intervention", "Coverage")
+  
+  # 2. Allocating non-fungible budget
+  #------------------------------------------ 
+  # For the final solution, update the above results to include interventions funded from the non-fungible component of the budget
+  # Since, the non-fungible drug budget is smaller that the cost of 100% cover of these interventions, the coverage is scaled down 
+  # in order to get a package which is feasible to deliver within the size of the drug budget
+  drug_budget.nonfungible <- drug_budget.nonfungible + (1-drug_exp.prop) * drug_budget.fungible # in case any budget remains after the above analysis
+  df_nonfungible <- df[df$donor_funded == "Yes", ]
+  
+  # Estimate drug budget needed to deliver intervention to all those in need of donor-funded (from non-fungible budget) interventions
+  df_nonfungible$conscost_maxcoverage <- df_nonfungible$conscost * as.numeric(df_nonfungible$feascov) * 
+    as.numeric(df_nonfungible$pop_size) * as.numeric(df_nonfungible$pop_pin)
+  # Scale down actual coverage based on the proportion by which the drug budget needed exceeds the total non-fungible budget
+  scalingfactor_nonfungible <- drug_budget.nonfungible/sum(df_nonfungible$conscost_maxcoverage)
+  scen_coverage_nonfungible <<- df_nonfungible[c("category", "code",  "intervention")]
+  scen_coverage_nonfungible$coverage <<-  as.numeric(df_nonfungible$feascov)  * scalingfactor_nonfungible
+  colnames(scen_coverage_nonfungible) <<- c("Program", "code", "Intervention", "Coverage")
+  
+  # 3. Putting the fungible and non-fungible components together
+  #-------------------------------------------------------------------------------
+  scen_coverage <<- rbind(scen_coverage_fungible, scen_coverage_nonfungible)
+  
+  # 4. Recalculate LPP outputs for extraction into the .csv file
+  #-------------------------------------------------------------------------------
+  merged_df = merge(x = df, y = scen_coverage, by = "code", all.x = TRUE)
+  
+  # Number of interventions with a positive net health impact
+  pos_nethealth.count <<- sum(as.numeric(merged_df$ce_cost)/as.numeric(merged_df$ce_dalys) <= base.cet)
+  
+  # Number of interventions in the optimal package
+  intervention.count <<- sum(merged_df$Coverage > 0)
+  
+  # DALY burden averted as a % of avertible DALY burden
+  solution_dalysaverted <<- merged_df$Coverage * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size) * as.numeric(merged_df$ce_dalys)
+  dalysavertible = as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size) * as.numeric(merged_df$ce_dalys) # Total DALYs that can be averted at maximum coverage
+  dalys_averted <<- round(sum(unlist(lapply(solution_dalysaverted, sum))),2)
+  dalys_averted.prop <<- sum(unlist(lapply(solution_dalysaverted, sum)))/sum(unlist(lapply(dalysavertible, sum)))
+  
+  # Net DALYs averted
+  solution_netdalysaverted <<- merged_df$Coverage * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size) * (as.numeric(merged_df$ce_dalys) - as.numeric(merged_df$ce_cost)/cet_input)
+  netdalys_averted <<- round(sum(unlist(lapply(solution_netdalysaverted, sum))),2)
+  
+  # Drugs and Commodities cost (% of budget available)
+  solution_drugexp <<- merged_df$Coverage * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size) * as.numeric(merged_df$conscost)
+  drug_exp.prop <<- round(sum(unlist(lapply(solution_drugexp, sum))),2)/drug_budget_input
+  
+  # Cost-effectiveness Threshold
+  merged_df$icer = as.numeric(merged_df$ce_cost)/as.numeric(merged_df$ce_dalys)
+  cet_soln <<- max(merged_df$icer[merged_df$Coverage > 0])
+  
+  # Total HR use (% of capacity)
+  hr_cadres <- c("Clinical", "Nursing", "Pharmaceutical", "Lab")
+  hrneed <- merged_df[c("hr_medoff", "hr_clinoff", "hr_medass",
+                        "hr_nuroff", "hr_nurtech",
+                        "hr_pharm", "hr_pharmtech", "hr_pharmass",
+                        "hr_laboff", "hr_labtech", "hr_labass")] # Number of minutes of health worker time requires per intervention per person
+  hrneed <- as.data.frame(apply(hrneed,2,as.numeric))
+  hr_minutes_need <- hrneed * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size)  # HR minutes required to deliver intervention to all cases in need
+  
+  hr_size.limit <- hr.size
+  medstaff.limit <- hr_size.limit[1]
+  nursingstaff.limit <- hr_size.limit[2]
+  pharmstaff.limit <- hr_size.limit[3] 
+  labstaff.limit <- hr_size.limit[4]
+  
+  medstaff.need <- hr_minutes_need[c("hr_medoff")] + hr_minutes_need[c("hr_clinoff")] + hr_minutes_need[c("hr_medass")] # Medical officer + Clinical officer + Medical Assistant
+  nursingstaff.need <- hr_minutes_need[c("hr_nuroff")] + hr_minutes_need[c("hr_nurtech")] # Nurse officer + Nurse midwife
+  pharmstaff.need <- hr_minutes_need[c("hr_pharm")] + hr_minutes_need[c("hr_pharmtech")] + hr_minutes_need[c("hr_pharmass")] # Pharmacist + Pharmacist Technician + Pharmacist Assistant
+  labstaff.need <- hr_minutes_need[c("hr_laboff")] + hr_minutes_need[c("hr_labtech")] + hr_minutes_need[c("hr_labass")] # Lab officer + Lab technician + Lab assistant
+  
+  solution_hruse <<- merged_df$Coverage * cbind(medstaff.need/(medstaffmins.limit/medstaff.limit), nursingstaff.need/(nursingstaffmins.limit/nursingstaff.limit), 
+                                               pharmstaff.need/(pharmstaffmins.limit/pharmstaff.limit), labstaff.need/(labstaffmins.limit/labstaff.limit))
+  total_hruse <<- colSums(solution_hruse, na.rm = FALSE, dims = 1) # Number of minutes per health worker cadre utlitised by the optimal solution
+  hruse.prop <<- round(total_hruse/cons_hr.limit_base, 2)  # Proportion of HR time available used by the optimal solution
+  hr_cadres <- c("Clinical", "Nursing", "Pharmaceutical", "Lab")
+  colnames(hruse.prop) <<- hr_cadres
+  
+  # Save program column for resource use graph
+  category <<- merged_df$category # program/category of intervention
+  
+  # outputs
+  outputs <- list("Total number of interventions in consideration" = dim(scen_coverage)[1], 
+                  "Number of interventions with positive net health impact" = pos_nethealth.count, 
+                  "Number of interventions in the optimal package" = intervention.count,
+                  "Net DALYs averted" = solution.class$objval,
+                  "Total DALYs averted" = sum(unlist(lapply(solution_dalysaverted, sum))), 
+                  "Proportion of DALY burden averted" = dalys_averted.prop , 
+                  "Proportion of drug budget used" = drug_exp.prop, 
+                  "Proportion of HR capacity used by cadre" = hruse.prop,
+                  "CET based on solution" =  cet_soln)
+  return(outputs)
+}
+
+
 #############################################################
 # Function to generate resource use stacked bar charts
 #############################################################
@@ -543,80 +665,38 @@ scen6_coverage = solution
 # 7.	CET* + Demand constraint + Drug budget constraint (Exclude donor funded interventions) 
 #---------------------------------------------------------------------------------------------------------------------------------
 # [This scenario updates scenario 5 with a more realistic list of services considering donor constraints]
-
-# For constrained optimisation, we only consider interventions which are not funded from the non-fungible part of the 
-# budget
-df_fungible <- df[df$donor_funded == "No", ]
-drug_budget.fungible <- base.drugbudget - 172324161
-find_optimal_package(data.frame = df_fungible, objective_input = "nethealth", cet_input = base.cet, 
-                     drug_budget_input = drug_budget.fungible, drug_budget.scale = 1,  
+find_optimal_package_with_donor_constraint(data.frame = data.frame, objective_input = "nethealth", cet_input = base.cet, 
+                     drug_budget_input = base.drugbudget, drug_budget.scale = 1,  
                      hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = no.hr.limit, 
                      use_feasiblecov_constraint = 1, feascov_scale = 1, compcov_scale = 1, 
-                     compulsory_interventions = NULL, substitutes = subs_list, task_shifting_pharm = 1)
-scen7_fungible = cbind.data.frame(pos_nethealth.count, intervention.count, dalys_averted, cet_soln, drug_exp.prop, hruse.prop)
-scen7_coverage_fungible = solution
-scen7_coverage_fungible = cbind(category, code,  intervention, solution)
-colnames(scen7_coverage_fungible) = c("Program", "code", "Intervention", "Coverage")
-
-# For the final solution, update the above results to include interventions funded from the non-fungible component of the budget
-# Since, the non-fungible drug budget is smaller that the cost of 100% cover of these interventions, the coverage is scaled down 
-# in order to get a package which is feasible to deliver within the size of the drug budget
-drug_budget.nonfungible <- 172324161 + (1-drug_exp.prop) * drug_budget.fungible # in case any budget remains after the above analysis
-df_nonfungible <- df[df$donor_funded == "Yes", ]
-df_nonfungible$conscost_maxcoverage <- df_nonfungible$conscost * as.numeric(df_nonfungible$feascov) * 
-  as.numeric(df_nonfungible$pop_size) * as.numeric(df_nonfungible$pop_pin)
-
-scalingfactor_nonfungible <- drug_budget.nonfungible/sum(df_nonfungible$conscost_maxcoverage)
-scen7_coverage_nonfungible <- df_nonfungible[c("category", "code",  "intervention")]
-scen7_coverage_nonfungible$coverage =  as.numeric(df_nonfungible$feascov)  * scalingfactor_nonfungible
-colnames(scen7_coverage_nonfungible) = c("Program", "code", "Intervention", "Coverage")
-
-scen7_coverage <- rbind(scen7_coverage_fungible, scen7_coverage_nonfungible)
-
-merged_df = merge(x = df, y = scen7_coverage, by = "code",
-           all.x = TRUE)
-pos_nethealth.count <- sum(as.numeric(merged_df$ce_cost)/as.numeric(merged_df$ce_dalys) <= base.cet)
-intervention.count <- sum(merged_df$Coverage > 0)
-solution_dalysaverted <- merged_df$Coverage * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size) * as.numeric(merged_df$ce_dalys)
-dalys_averted <- round(sum(unlist(lapply(solution_dalysaverted, sum))),2)
-merged_df$icer = as.numeric(merged_df$ce_cost)/as.numeric(merged_df$ce_dalys)
-cet_soln <- max(merged_df$icer[merged_df$Coverage > 0])
-  
-solution_drugexp <- merged_df$Coverage * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size) * as.numeric(merged_df$conscost)
-drug_exp.prop <- round(sum(unlist(lapply(solution_drugexp, sum))),2)/base.drugbudget
-
-hrneed <- merged_df[c("hr_medoff", "hr_clinoff", "hr_medass",
-                        "hr_nuroff", "hr_nurtech",
-                        "hr_pharm", "hr_pharmtech", "hr_pharmass",
-                        "hr_laboff", "hr_labtech", "hr_labass")] # Number of minutes of health worker time requires per intervention per person
-hrneed <- as.data.frame(apply(hrneed,2,as.numeric))
-hr_minutes_need <- hrneed * as.numeric(merged_df$pop_pin) * as.numeric(merged_df$pop_size)  # HR minutes required to deliver intervention to all cases in need
-
-hr_size.limit <- hr.size
-medstaff.limit <- hr_size.limit[1]
-nursingstaff.limit <- hr_size.limit[2]
-pharmstaff.limit <- hr_size.limit[3] 
-labstaff.limit <- hr_size.limit[4]
-
-medstaff.need <- hr_minutes_need[c("hr_medoff")] + hr_minutes_need[c("hr_clinoff")] + hr_minutes_need[c("hr_medass")] # Medical officer + Clinical officer + Medical Assistant
-nursingstaff.need <- hr_minutes_need[c("hr_nuroff")] + hr_minutes_need[c("hr_nurtech")] # Nurse officer + Nurse midwife
-pharmstaff.need <- hr_minutes_need[c("hr_pharm")] + hr_minutes_need[c("hr_pharmtech")] + hr_minutes_need[c("hr_pharmass")] # Pharmacist + Pharmacist Technician + Pharmacist Assistant
-labstaff.need <- hr_minutes_need[c("hr_laboff")] + hr_minutes_need[c("hr_labtech")] + hr_minutes_need[c("hr_labass")] # Lab officer + Lab technician + Lab assistant
-
-solution_hruse <- merged_df$Coverage * cbind(medstaff.need/(medstaffmins.limit/medstaff.limit), nursingstaff.need/(nursingstaffmins.limit/nursingstaff.limit), 
-                                             pharmstaff.need/(pharmstaffmins.limit/pharmstaff.limit), labstaff.need/(labstaffmins.limit/labstaff.limit))
-total_hruse <- colSums(solution_hruse, na.rm = FALSE, dims = 1) # Number of minutes per health worker cadre utlitised by the optimal solution
-hruse.prop <- round(total_hruse/cons_hr.limit_base, 2)  # Proportion of HR time available used by the optimal solution
-hr_cadres <- c("Clinical", "Nursing", "Pharmaceutical", "Lab")
-colnames(hruse.prop) <- hr_cadres
-
-scen7 <- cbind.data.frame(pos_nethealth.count, intervention.count, dalys_averted, cet_soln, drug_exp.prop, hruse.prop)
+                     compulsory_interventions = NULL, substitutes = subs_list, task_shifting_pharm = 1,
+                     drug_budget.nonfungible = 172324161)
+scen7 = cbind.data.frame(pos_nethealth.count, intervention.count, dalys_averted, cet_soln, drug_exp.prop, hruse.prop)
+scen7_coverage <- solution_df
 
 # Generate resource use graph for scenario 7
-cons_drug.limit_base <- base.drugbudget # re-adjust since this will be equal to only government budget
-cons_hr.limit_base <- cons_hr.limit_base[,1:3]
-solution_hruse <- solution_hruse[,1:3]
+cons_drug.limit_base <- base.drugbudget
+cons_hr.limit_base <- cons_hr.limit_base[,1:3] # only first three cadres
+solution_hruse <- solution_hruse[,1:3] # only first three cadres
 gen_resourceuse_graphs(plot_title = "Scenario 7" , plot_subtitle = "CET = $66 + Demand constraint + Drug Budget \n+ Donor constraints ", file_name = "2_outputs/figures/resourceuse_scen7.pdf")
+
+compulsory_intervention_list <- df_nonfungible$code
+
+drug_budget.nonfungible <- 172324161 # in case any budget remains after the above analysis
+df_nonfungible <- df[df$donor_funded == "Yes", ]
+
+# Estimate drug budget needed to deliver intervention to all those in need of donor-funded (from non-fungible budget) interventions
+df_nonfungible$conscost_maxcoverage <- df_nonfungible$conscost * as.numeric(df_nonfungible$feascov) * 
+  as.numeric(df_nonfungible$pop_size) * as.numeric(df_nonfungible$pop_pin)
+# Scale down actual coverage based on the proportion by which the drug budget needed exceeds the total non-fungible budget
+scalingfactor_nonfungible <- drug_budget.nonfungible/sum(df_nonfungible$conscost_maxcoverage)
+
+find_optimal_package(data.frame = data.frame, objective_input = "nethealth", cet_input = base.cet, 
+                     drug_budget_input = base.drugbudget, drug_budget.scale = 1,  
+                     hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = base.hr, 
+                     use_feasiblecov_constraint = 1, feascov_scale = 1, compcov_scale = scalingfactor_nonfungible, 
+                     compulsory_interventions = compulsory_intervention_list, substitutes = subs_list, task_shifting_pharm = 1)
+
 
 #############################################################
 # 4. Extract a .xlsx to compare EHPs under different scenarios
