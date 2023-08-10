@@ -680,8 +680,12 @@ cons_hr.limit_base <- cons_hr.limit_base[,1:3] # only first three cadres
 solution_hruse <- solution_hruse[,1:3] # only first three cadres
 gen_resourceuse_graphs(plot_title = "Scenario 7" , plot_subtitle = "CET = $66 + Demand constraint + Drug Budget \n+ Donor constraints ", file_name = "2_outputs/figures/resourceuse_scen7.pdf")
 
+# 7.	(Secondary method) CET* + Demand constraint + Drug budget constraint (Exclude donor funded interventions) 
+#---------------------------------------------------------------------------------------------------------------------------------
+# Note that there is another way to generate scenario 7 such that donor-funded interventions are treated as compulsory interventions
+# with compulsory coverage level being scaled down based on the ratio of the non-fungible budget to total cost of delivering these
+# interventions. But in this case, the fungible portion is allowed to be allocated towards donor-supported interventions
 compulsory_intervention_list <- df_nonfungible$code
-
 drug_budget.nonfungible <- 172324161 # in case any budget remains after the above analysis
 df_nonfungible <- df[df$donor_funded == "Yes", ]
 
@@ -693,7 +697,7 @@ scalingfactor_nonfungible <- drug_budget.nonfungible/sum(df_nonfungible$conscost
 
 find_optimal_package(data.frame = data.frame, objective_input = "nethealth", cet_input = base.cet, 
                      drug_budget_input = base.drugbudget, drug_budget.scale = 1,  
-                     hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = base.hr, 
+                     hr.time.constraint = hr.time.constraint, hr.size = hr.size, hr.scale = no.hr.limit, 
                      use_feasiblecov_constraint = 1, feascov_scale = 1, compcov_scale = scalingfactor_nonfungible, 
                      compulsory_interventions = compulsory_intervention_list, substitutes = subs_list, task_shifting_pharm = 1)
 
