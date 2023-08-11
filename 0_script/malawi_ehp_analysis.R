@@ -733,9 +733,11 @@ scenarios = c("No constraints",
               "CET ($65.8) + Demand constraint",
               "CET ($65.8) + Demand constraint + Drug budget",
               "CET ($65.8) + Demand constraint + Drug budget + HR constraint",
-              "CET ($65.8) + Demand constraint + Drug budget + Donor constraint")
+              "CET ($65.8) + Demand constraint + Drug budget + Donor constraint",
+              "CET ($164.7) + Demand constraint + Drug budget + HR constraint",
+              "CET ($164.7) + Demand constraint + Drug budget ")
 
-summary = rbind(scen1, scen2, scen3, scen4, scen5, scen6, scen7)
+summary = rbind(scen1, scen2, scen3, scen4, scen5, scen6, scen7, scen8, scen9)
 summary = cbind(scenarios, summary)
 colnames(summary) = c("Constraints applied", "Number of interventions with positive NHB", "Number of interventions in the optimal package", 
                       "Total DALYs averted", "Highest ICER in the HBP", "% of drug budget required",
@@ -743,9 +745,10 @@ colnames(summary) = c("Constraints applied", "Number of interventions with posit
                       "% of Pharmaceutical staff capacity required", "% of Lab staff capacity required")
 
 coverage_byscenario = cbind(data.frame$category, data.frame$code, data.frame$intervention, scen1_coverage, scen2_coverage, scen3_coverage, scen4_coverage, scen5_coverage, scen6_coverage)
-colnames(coverage_byscenario) = c("Program", "code", "Intervention", scenarios[-length(scenarios)])
+colnames(coverage_byscenario) = c("Program", "code", "Intervention", scenarios[1:6])
 coverage_byscenario = merge(x = coverage_byscenario, y = scen7_coverage[c('code', 'Coverage')], by = "code",
                             all.x = TRUE)
+coverage_byscenario = cbind(coverage_byscenario, scen8_coverage, scen9_coverage)
 colnames(coverage_byscenario) = c("Program", "Intervention code", "Intervention", scenarios)
 
 sheets <- list("output_and_resourceuse" = summary, "optimal_coverage" = coverage_byscenario) 
